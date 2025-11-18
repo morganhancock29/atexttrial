@@ -16,7 +16,7 @@ file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 # File format dropdown
 file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV"])
 
-# Checkbox to skip left column of numbers
+# Checkbox: skip left column of numbers
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
 
 st.sidebar.markdown("---")
@@ -27,6 +27,7 @@ input_text = st.text_area("Paste team sheet here", height=250)
 
 # --- Processing ---
 extracted_players = []
+skipped_lines = []
 
 # Words/positions to completely remove after name
 ignore_words = [
@@ -48,23 +49,25 @@ ignore_countries = [
     "Russia", "Ukraine", "Egypt", "Morocco", "Nigeria"
 ]
 
+# Common lowercase name particles
+name_particles = ["de", "van", "von", "da", "di", "le", "la", "del", "du", "Mac", "Mc"]
+
 if input_text:
     lines = input_text.splitlines()
     for line in lines:
-        line = line.strip()
-        if not line:
+        original_line = line.strip()
+        if not original_line:
             continue
 
         # Skip ignored headings
-        if any(line.lower().startswith(h.lower()) for h in ignore_words):
+        if any(original_line.lower().startswith(h.lower()) for h in ignore_words):
             continue
 
         # --- CLEAN LINE ---
-        # Remove leading '*' or whitespace
-        line = re.sub(r"^[\*\s]+", "", line)
+        line = re.sub(r"^[\*\s]+", "", original_line)
         # Remove content inside parentheses
         line = re.sub(r"\(.*?\)", "", line)
-        # Remove any known positions / countries after the name
+        # Remove known positions / countries after name
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
@@ -72,34 +75,24 @@ if input_text:
         numbers_in_line = re.findall(r"\d+", line)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
-        else:
-            number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
-
-        # Remove numbers from line for name extraction
-        if skip_left_column:
             line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
         else:
+            number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
             line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
         # Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
         # --- NAME EXTRACTION ---
-        # Prefer 2+ capitalized words
-        name_match = re.findall(r"[A-Z][a-zA-Z'`.-]+(?:\s[A-Z][a-zA-Z'`.-]+)+", line_no_number)
-
-        # If none, try single capitalized word, only if safe
-        if not name_match:
-            single_name_match = re.findall(r"\b([A-Z][a-zA-Z'`.-]+)\b", line_no_number)
-            if single_name_match:
-                for candidate in single_name_match:
-                    if candidate not in ignore_words + ignore_countries:
-                        name_match = [candidate]
-                        break  # Take first “safe” single word
+        # Regex to allow name particles
+        particles_regex = "|".join(name_particles)
+        name_match = re.findall(
+            rf"[A-Z][a-zA-Z'`.-]+(?:\s(?:{particles_regex})?\s?[A-Z][a-zA-Z'`.-]+)+",
+            line_no_number
+        )
 
         if name_match:
             name = name_match[0].strip()
-
             # Append team text
             if team_text:
                 name += f" {team_text}"
@@ -108,6 +101,8 @@ if input_text:
                 extracted_players.append(f"{number}\t{name}")
             else:
                 extracted_players.append(name)
+        else:
+            skipped_lines.append(original_line)
 
 # --- Output ---
 if extracted_players:
@@ -150,5 +145,9 @@ if extracted_players:
         file_name=filename,
         mime=mime
     )
+
+    if skipped_lines:
+        st.subheader("Skipped Lines (names not recognized)")
+        st.text("\n".join(skipped_lines))
 else:
     st.info("No player names detected. Make sure your team sheet is pasted correctly.")
