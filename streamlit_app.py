@@ -13,28 +13,28 @@ show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
-# Download format dropdown (CSV renamed to CSV (aText))
+# Download format dropdown
 file_format = st.sidebar.selectbox("Download format", ["CSV (aText)", "TSV (PhotoMechanic)"])
 
 # Checkbox to skip left column
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
 
-# Always-visible FAQ
+# FAQ box
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 ### ❓ FAQ
 
 **Why do some names not work?**  
-Some name formats might be skipped, including:  
-- lines with unusual formatting  
-- names not beginning with capital letters  
-- single-word names with fewer than 4 letters  
-- final surnames shorter than 4 letters unless they follow a known prefix  
+Some unusual name formats might be skipped, including:  
+- Lines not starting with a capitalized first name  
+- Single-word names  
+- Very short last names (<2 letters)  
+
 Check the **Skipped Lines** section below.
 
 **CSV vs TSV**  
-- **CSV (aText)** is recommended for aText.  
-- **TSV (PhotoMechanic)** is preferred for PhotoMechanic import (preserves spacing).
+- **CSV (aText)** is recommended for aText  
+- **TSV (PhotoMechanic)** preserves spacing and special characters for PhotoMechanic
 
 **Skip left column**  
 If your sheet includes row numbers like:  
@@ -52,7 +52,6 @@ input_text = st.text_area("Paste team sheet here", height=250)
 extracted_players = []
 skipped_lines = []
 
-# Words/positions to remove after name
 ignore_words = [
     "All-rounders", "Wicketkeepers", "Bowlers",
     "Forwards", "Defenders", "Goalkeepers", "Midfielders",
@@ -61,7 +60,6 @@ ignore_words = [
     "Power Forward", "PF", "Center", "C"
 ]
 
-# Countries to ignore
 ignore_countries = [
     "Australia", "AUS", "New Zealand", "NZ", "United States", "America", "USA", "Canada",
     "England", "South Africa", "India", "Pakistan", "Sri Lanka", "West Indies",
@@ -71,82 +69,49 @@ ignore_countries = [
     "Russia", "Ukraine", "Egypt", "Morocco", "Nigeria"
 ]
 
-# Lowercase surname prefixes (M1)
-surname_prefixes = [
-    "de", "van", "von", "da", "del", "di", "du", "la", "le",
-    "mac", "mc", "van der", "van den", "der"
-]
+# Common lowercase surname prefixes
+surname_prefixes = ["de", "van", "von", "da", "del", "di", "du", "la", "le", "Mac", "Mc", "van der", "van den", "der"]
 
-# Prefix regex
-prefix_pattern = r"(?:van der|van den|de|van|von|da|del|di|du|la|le|mac|mc|der)"
-
-# Name pattern with prefixes
-name_regex = rf"""
-    (
-        [A-Z][a-zA-Z'`.-]+                       # First name
-        (?:
-            \s(?:{prefix_pattern})?              # Optional prefix
-            \s[A-Z][a-zA-Z'`.-]+                 # Next name part
-        )+
-    )
-"""
-compiled_name_regex = re.compile(name_regex, re.VERBOSE)
-
-def valid_last_name(word):
-    """Implements surname rules."""
-    w = word.lower()
-
-    # 4+ letters is OK
-    if len(w) >= 4:
-        return True
-
-    # 2–3 letters allowed if part of prefix surname (already handled)
-    if len(w) >= 2:
-        return True
-
-    return False
+# Build a regex pattern for names
+prefix_pattern = r"(?:van der|van den|de|van|von|da|del|di|du|la|le|Mac|Mc|der)?"
+name_pattern = re.compile(
+    rf"[A-Z][a-zA-Z'`.-]+(?:\s{prefix_pattern}\s?[A-Z][a-zA-Z'`.-]+)+"
+)
 
 if input_text:
     lines = input_text.splitlines()
-
     for line in lines:
         original_line = line.strip()
         if not original_line:
             continue
 
+        # Skip headings
         if any(original_line.lower().startswith(h.lower()) for h in ignore_words):
             continue
 
-        line = re.sub(r"^[\*\s]+", "", original_line)
-        line = re.sub(r"\(.*?\)", "", line)
-
+        # Clean line
+        line_clean = re.sub(r"^[\*\s]+", "", original_line)
+        line_clean = re.sub(r"\(.*?\)", "", line_clean)
         for word in ignore_words + ignore_countries:
-            line = re.sub(rf"\b{re.escape(word)}\b", "", line)
+            line_clean = re.sub(rf"\b{re.escape(word)}\b", "", line_clean)
 
-        numbers_in_line = re.findall(r"\d+", line)
+        # Extract number
+        numbers_in_line = re.findall(r"\d+", line_clean)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
-            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
+            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line_clean).strip()
         else:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
-            line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+            line_no_number = re.sub(r"^\d+\s*", "", line_clean).strip()
 
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        matches = compiled_name_regex.findall(line_no_number)
-
-        if matches:
-            name = matches[0].strip()
-
-            # Validate last surname rule
-            last_word = name.split()[-1]
-            if not valid_last_name(last_word):
-                skipped_lines.append(original_line)
-                continue
-
+        # Match name
+        name_match = name_pattern.search(line_no_number)
+        if name_match:
+            name = name_match.group().strip()
             if team_text:
                 name += f" {team_text}"
-
             extracted_players.append((number, name))
         else:
             skipped_lines.append(original_line)
@@ -159,8 +124,7 @@ if extracted_players:
     if file_name_input.strip():
         base_filename = file_name_input.strip()
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_filename = f"team_{timestamp}"
+        base_filename = f"team_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     output = io.StringIO()
     if file_format == "TSV (PhotoMechanic)":
@@ -173,7 +137,6 @@ if extracted_players:
         mime = "text/csv"
 
     writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_MINIMAL)
-
     for num, name in extracted_players:
         writer.writerow([num, name])
 
@@ -187,6 +150,5 @@ if extracted_players:
     if skipped_lines:
         st.subheader("Skipped Lines (names not recognized)")
         st.text("\n".join(skipped_lines))
-
 else:
     st.info("No player names detected. Make sure your team sheet is pasted correctly.")
