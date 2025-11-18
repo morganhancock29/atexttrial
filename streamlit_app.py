@@ -9,15 +9,12 @@ st.title("Team Sheet Extractor")
 
 # --- Sidebar ---
 st.sidebar.header("Options")
-show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
+use_second_number = st.sidebar.checkbox("Use second number as jersey", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
 # File format dropdown
 file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV"])
-
-# New checkbox: skip left column of numbers
-skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
@@ -68,35 +65,41 @@ if input_text:
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
-        # --- GET NUMBER ---
-        # If skipping left column, use second number; else use first
-        numbers_in_line = re.findall(r"\d+", line)
-        if skip_left_column:
-            number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
-        else:
-            number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
+        # --- GET NUMBERS ---
+        numbers = re.findall(r"\b\d+\b", line)
+        number = ""
+        if numbers:
+            if use_second_number and len(numbers) > 1:
+                number = numbers[1]  # Take the second number if ticked
+            else:
+                number = numbers[0]  # Take first number if unticked
 
-        # Remove the number(s) for name extraction
-        if skip_left_column:
-            # Remove first two numbers if they exist
-            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
-        else:
-            # Remove only the first number
-            line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+        # Remove numbers from line for name extraction
+        line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
         # NEW FIX: Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # Extract name: look for 2+ capitalized words
+        # --- NAME EXTRACTION ---
+        # Prefer 2+ capitalized words
         name_match = re.findall(r"[A-Z][a-zA-Z'`.-]+(?:\s[A-Z][a-zA-Z'`.-]+)+", line_no_number)
+
+        # If none, try single capitalized word, only if safe
+        if not name_match:
+            single_name_match = re.findall(r"\b([A-Z][a-zA-Z'`.-]+)\b", line_no_number)
+            if single_name_match:
+                for candidate in single_name_match:
+                    if candidate not in ignore_words + ignore_countries:
+                        name_match = [candidate]
+                        break  # Take first “safe” single word
+
         if name_match:
             name = name_match[0].strip()
-
             # Append team text
             if team_text:
                 name += f" {team_text}"
 
-            if show_numbers and number:
+            if number:
                 extracted_players.append(f"{number}\t{name}")
             else:
                 extracted_players.append(name)
@@ -127,7 +130,7 @@ if extracted_players:
     output = io.StringIO()
     writer = csv.writer(output, delimiter=delimiter)
     for player in extracted_players:
-        if show_numbers and '\t' in player:
+        if '\t' in player:
             number, name = map(str.strip, player.split('\t', 1))
         else:
             number = ''
