@@ -4,93 +4,42 @@ import io
 import csv
 from datetime import datetime
 
-# -------------------------
-# Page config
-# -------------------------
 st.set_page_config(page_title="Team Sheet Extractor", layout="wide")
 st.title("Team Sheet Extractor")
 
-# -------------------------
-# FAQ modal state
-# -------------------------
-if "show_faq" not in st.session_state:
-    st.session_state.show_faq = False
-
-# Top FAQ button
-col_top_left, col_top_right = st.columns([0.15, 0.85])
-with col_top_left:
-    if st.button("📘 Open FAQ"):
-        st.session_state.show_faq = True
-with col_top_right:
-    st.write("")  # spacer
-
-# If FAQ is toggled, show FAQ block
-if st.session_state.show_faq:
-    st.markdown("---")
-    st.header("FAQ")
-    st.markdown(
-        """
-### ❗️ Why do some names not work?
-- Lines with unusual formatting or invisible characters may be skipped.
-- Lines with only one word are ignored to prevent errors.
-- Lines in all lowercase may also be skipped.
-
-### 📥 How to import CSV into aText
-1. Export using **CSV**.
-2. In aText: **File → Import → CSV**.
-3. Choose:
-   - Column 1 = Abbreviation
-   - Column 2 = Text
-
-### 📸 Why use TSV?
-TSV is preferred for **Photo Mechanic** imports (preserves spacing and special characters).
-
-### ✏️ Can I edit text before exporting?
-Yes. The input box is editable and changes are reflected in downloads.
-
-### ⚠️ Why might aText say "Error reading file"?
-- File wasn't CSV
-- Re-saved incorrectly (Excel changed encoding)
-- Imported in wrong aText menu
-
-### 🧹 Skip left column of numbers
-Some team sheets include an index before jersey numbers, e.g.:
-1 26 Taylor Smith
-2 04 Jamie Doe
-    
-- If **Skip left column** is ON, the app removes the first number and uses the second.
-- If lines already start with the actual number, leave **OFF**.
-"""
-    )
-    if st.button("Close FAQ"):
-        st.session_state.show_faq = False
-    st.markdown("---")
-
-# -------------------------
-# Sidebar / Options
-# -------------------------
+# --- Sidebar ---
 st.sidebar.header("Options")
 show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
-file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV (PhotoMechanic)"])
+# Download format dropdown
+file_format = st.sidebar.selectbox("Download format", ["TSV (PhotoMechanic)", "CSV (general)"])
+
+# Checkbox: skip left column of numbers
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
+
+# Optional FAQ
+if st.sidebar.checkbox("Show FAQ"):
+    st.sidebar.markdown("""
+    **FAQ**  
+    - **How to paste team sheets:** Copy the text from your source and paste it in the main text box.  
+    - **Skip left column:** Use this if your team sheet has row numbers in the first column you want to ignore.  
+    - **Names not recognized:** Some unusual name formats might be skipped; check the 'Skipped Lines' section below.  
+    - **CSV vs TSV:** CSV works in most programs; TSV is preferred for PhotoMechanic import.  
+    """)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
 
-# -------------------------
-# Main input
-# -------------------------
-input_text = st.text_area("Paste team sheet here", height=300)
+# --- Input ---
+input_text = st.text_area("Paste team sheet here", height=250)
 
-# -------------------------
-# Processing
-# -------------------------
+# --- Processing ---
 extracted_players = []
 skipped_lines = []
 
+# Words/positions to remove after name
 ignore_words = [
     "All-rounders", "Wicketkeepers", "Bowlers",
     "Forwards", "Defenders", "Goalkeepers", "Midfielders",
@@ -99,6 +48,7 @@ ignore_words = [
     "Power Forward", "PF", "Center", "C"
 ]
 
+# Countries to ignore
 ignore_countries = [
     "Australia", "AUS", "New Zealand", "NZ", "United States", "America", "USA", "Canada",
     "England", "South Africa", "India", "Pakistan", "Sri Lanka", "West Indies",
@@ -108,7 +58,8 @@ ignore_countries = [
     "Russia", "Ukraine", "Egypt", "Morocco", "Nigeria"
 ]
 
-name_particles = ["de", "van", "von", "da", "di", "le", "la", "del", "du", "mac", "mc"]
+# Common lowercase name particles
+name_particles = ["de", "van", "von", "da", "di", "le", "la", "del", "du", "Mac", "Mc"]
 
 if input_text:
     lines = input_text.splitlines()
@@ -117,79 +68,67 @@ if input_text:
         if not original_line:
             continue
 
-        # skip section headings
         if any(original_line.lower().startswith(h.lower()) for h in ignore_words):
             continue
 
-        # clean line
         line = re.sub(r"^[\*\s]+", "", original_line)
         line = re.sub(r"\(.*?\)", "", line)
-
-        # remove trailing words
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
-        # extract numbers
         numbers_in_line = re.findall(r"\d+", line)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
             line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
         else:
-            number = numbers_in_line[0] if numbers_in_line else ""
+            number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
             line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
-        line_no_number = re.sub(r"^(GK|DF|MF|FW|G|F|D)\b", "", line_no_number).strip()
+        line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # extract names
-        particles_regex = "|".join(re.escape(p) for p in name_particles)
+        particles_regex = "|".join(name_particles)
         name_match = re.findall(
-            rf"[A-Z][a-zA-Z'`.\-]+(?:\s(?:(?:{particles_regex})\s)?[A-Z][a-zA-Z'`.\-]+)+",
+            rf"[A-Z][a-zA-Z'`.-]+(?:\s(?:{particles_regex})?\s?[A-Z][a-zA-Z'`.-]+)+",
             line_no_number
         )
 
         if name_match:
             name = name_match[0].strip()
             if team_text:
-                name = f"{name} {team_text}"
-            if show_numbers and number:
-                extracted_players.append(f"{number}\t{name}")
-            else:
-                extracted_players.append(name)
+                name += f" {team_text}"
+            extracted_players.append((number, name))
         else:
             skipped_lines.append(original_line)
 
-# -------------------------
-# Output & Download
-# -------------------------
+# --- Output ---
 if extracted_players:
     st.subheader("Extracted Team Sheet")
-    st.text("\n".join(extracted_players))
+    st.text("\n".join([f"{num}\t{name}" if num else name for num, name in extracted_players]))
 
-    base_filename = file_name_input.strip() if file_name_input.strip() else datetime.now().strftime("team_%Y%m%d_%H%M%S")
-
-    if file_format == "CSV":
-        filename = base_filename + ".csv"
-        delimiter = ","
-        mime = "text/csv"
+    if file_name_input.strip():
+        base_filename = file_name_input.strip()
     else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_filename = f"team_{timestamp}"
+
+    output = io.StringIO()
+    if file_format == "TSV (PhotoMechanic)":
         filename = base_filename + ".tsv"
         delimiter = "\t"
         mime = "text/tab-separated-values"
+    else:
+        filename = base_filename + ".csv"
+        delimiter = ","
+        mime = "text/csv"
 
-    output = io.StringIO()
     writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    for num, name in extracted_players:
+        writer.writerow([num, name])
 
-    for player in extracted_players:
-        if show_numbers and "\t" in player:
-            number, name = map(str.strip, player.split("\t", 1))
-        else:
-            number = ""
-            name = player
-        writer.writerow([number, name])
-
+    file_data = output.getvalue()
     st.download_button(
         label=f"Download as {file_format}",
-        data=output.getvalue(),
+        data=file_data,
         file_name=filename,
         mime=mime
     )
