@@ -12,15 +12,13 @@ st.sidebar.header("Options")
 show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
-
-# File format dropdown
-file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV"])
+download_format = st.sidebar.selectbox("Download format", ["CSV", "TSV"])
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
 
 # --- Input ---
-input_text = st.text_area("Paste team sheet here", height=250)
+input_text = st.text_area("Paste team sheet here", height=350)
 
 # --- Processing ---
 extracted_players = []
@@ -30,6 +28,7 @@ ignore_words = [
     "All-rounders", "Wicketkeepers", "Bowlers",
     "Forwards", "Defenders", "Goalkeepers", "Midfielders",
     "Forward", "Defender", "Goalkeeper", "Midfielder",
+    "GK", "DF", "MF", "FW",
     # Basketball positions
     "Point Guard", "PG", "Shooting Guard", "SG", "Small Forward", "SF",
     "Power Forward", "PF", "Center", "C"
@@ -52,42 +51,50 @@ if input_text:
         if not line:
             continue
 
-        # Skip ignored headings
-        if any(line.lower().startswith(h.lower()) for h in ignore_words):
+        # Remove starting '*' or whitespace
+        line = re.sub(r"^[\*\s]+", "", line)
+        # Remove contents inside parentheses
+        line = re.sub(r"\(.*?\)", "", line)
+
+        # Split line into tokens
+        tokens = line.split()
+        if not tokens:
             continue
 
-        # --- CLEAN LINE ---
-        # Remove leading '*' or whitespace
-        line = re.sub(r"^[\*\s]+", "", line)
-        # Remove content inside parentheses
-        line = re.sub(r"\(.*?\)", "", line)
-        # Remove any known positions / countries after the name
-        for word in ignore_words + ignore_countries:
-            line = re.sub(rf"\b{re.escape(word)}\b", "", line)
+        # --- Determine jersey number ---
+        jersey_number = ""
+        name_tokens = []
 
-        # --- GET NUMBER ---
-        num_match = re.match(r"^(\d+)", line)
-        number = num_match.group(1) if num_match else ""
+        # Loop through tokens to find the first number after the name
+        for i, token in enumerate(tokens):
+            # Skip positions/countries
+            if token in ignore_words + ignore_countries:
+                continue
+            # First token that is purely numeric is likely jersey number
+            if token.isdigit() and not jersey_number:
+                jersey_number = token
+                name_tokens = tokens[:i]  # Everything before number is name
+                break
 
-        # Remove the number for name extraction
-        line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+        # If no numeric token found, treat entire line as name
+        if not jersey_number:
+            name_tokens = tokens
 
-        # NEW FIX: Remove GK / DF / MF / FW between number and name
-        line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
+        # Build player name
+        name = " ".join(name_tokens).strip()
 
-        # Extract name: look for 2+ capitalized words
-        name_match = re.findall(r"[A-Z][a-zA-Z'`.-]+(?:\s[A-Z][a-zA-Z'`.-]+)+", line_no_number)
-        if name_match:
-            name = name_match[0].strip()
+        # Remove trailing positions/countries accidentally left
+        name = " ".join([w for w in name.split() if w not in ignore_words + ignore_countries])
 
-            # Append team text
-            if team_text:
-                name += f" {team_text}"
+        # Append team text if given
+        if team_text:
+            name += f" {team_text}"
 
-            if show_numbers and number:
-                extracted_players.append(f"{number}\t{name}")
-            else:
-                extracted_players.append(name)
+        # Format output
+        if show_numbers and jersey_number:
+            extracted_players.append(f"{jersey_number}\t{name}")
+        else:
+            extracted_players.append(name)
 
 # --- Output ---
 if extracted_players:
@@ -96,22 +103,22 @@ if extracted_players:
 
     # Determine filename
     if file_name_input.strip():
-        base_filename = file_name_input.strip()
+        filename = file_name_input.strip()
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_filename = f"team_{timestamp}"
+        filename = f"team_{timestamp}"
 
-    # Set extension based on dropdown
-    if file_format == "CSV":
-        filename = base_filename + ".csv"
+    # Add proper extension
+    if download_format == "CSV":
+        filename += ".csv"
         delimiter = ","
         mime = "text/csv"
     else:
-        filename = base_filename + ".tsv"
+        filename += ".tsv"
         delimiter = "\t"
         mime = "text/tab-separated-values"
 
-    # Build data
+    # Prepare download
     output = io.StringIO()
     writer = csv.writer(output, delimiter=delimiter)
     for player in extracted_players:
@@ -122,11 +129,9 @@ if extracted_players:
             name = player
         writer.writerow([number, name])
 
-    file_data = output.getvalue()
-
     st.download_button(
-        label=f"Download as {file_format}",
-        data=file_data,
+        label=f"Download as {download_format}",
+        data=output.getvalue(),
         file_name=filename,
         mime=mime
     )
