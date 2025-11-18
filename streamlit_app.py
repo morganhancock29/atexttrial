@@ -13,7 +13,7 @@ show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV"])
-skip_left_column = st.sidebar.checkbox("Skip left column numbers", value=False)
+skip_left_column = st.sidebar.checkbox("Skip left column numbers", value=False)  # tick = skip left column
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
@@ -58,83 +58,13 @@ if input_text:
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
-        # --- NUMBER & NAME EXTRACTION ---
+        # --- GET NUMBER & NAME ---
+        num_match = re.findall(r"\d+", line)
         number = ""
-        name = ""
+        line_no_number = line
 
         if skip_left_column:
-            # Treat first numeric token as jersey number (ignore left column)
-            tokens = line.split()
-            numeric_tokens = [token for token in tokens if token.isdigit()]
-            if numeric_tokens:
-                number = numeric_tokens[0]
-                first_num_index = tokens.index(numeric_tokens[0])
-                name_tokens = tokens[first_num_index + 1:]
-            else:
-                name_tokens = tokens
-        else:
-            # Old logic: use second number if there are two numbers at start
-            tokens = line.split()
-            numeric_tokens = [token for token in tokens if token.isdigit()]
-            if len(numeric_tokens) >= 2:
-                number = numeric_tokens[1]
-                second_num_index = tokens.index(numeric_tokens[1])
-                name_tokens = tokens[second_num_index + 1:]
-            elif numeric_tokens:
-                number = numeric_tokens[0]
-                first_num_index = tokens.index(numeric_tokens[0])
-                name_tokens = tokens[first_num_index + 1:]
-            else:
-                name_tokens = tokens
-
-        # Remove positions like GK / DF / MF / FW at start of name_tokens
-        if name_tokens and re.match(r"^(GK|DF|MF|FW)$", name_tokens[0]):
-            name_tokens = name_tokens[1:]
-
-        # Extract name: only include capitalized words
-        name_words = [w for w in name_tokens if re.match(r"^[A-Z][a-zA-Z'`.-]+", w)]
-        if name_words:
-            name = " ".join(name_words)
-            if team_text:
-                name += f" {team_text}"
-            if show_numbers and number:
-                extracted_players.append(f"{number}\t{name}")
-            else:
-                extracted_players.append(name)
-
-# --- Output ---
-if extracted_players:
-    st.subheader("Extracted Team Sheet")
-    st.text("\n".join([p.replace("\t", " | ") for p in extracted_players]))
-
-    # Determine filename
-    base_filename = file_name_input.strip() if file_name_input.strip() else datetime.now().strftime("team_%Y%m%d_%H%M%S")
-    if file_format == "CSV":
-        filename = base_filename + ".csv"
-        delimiter = ","
-        mime = "text/csv"
-    else:
-        filename = base_filename + ".tsv"
-        delimiter = "\t"
-        mime = "text/tab-separated-values"
-
-    # Build data
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=delimiter)
-    for player in extracted_players:
-        if show_numbers and "\t" in player:
-            number, name = map(str.strip, player.split("\t", 1))
-        else:
-            number = ''
-            name = player
-        writer.writerow([number, name])
-
-    file_data = output.getvalue()
-    st.download_button(
-        label=f"Download as {file_format}",
-        data=file_data,
-        file_name=filename,
-        mime=mime
-    )
-else:
-    st.info("No player names detected. Make sure your team sheet is pasted correctly.")
+            # If skipping left column, take the first number as jersey
+            if num_match:
+                number = num_match[0]
+                line_no_
