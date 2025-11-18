@@ -26,9 +26,9 @@ st.sidebar.markdown("""
 
 **Why do some names not work?**  
 Some unusual name formats might be skipped, including:  
-- Lines not starting with a capitalized first name  
-- Single-word names  
-- Very short last names (<2 letters)  
+- Very short names (<4 letters)  
+- Single-word names shorter than 4 letters  
+- Lines not starting with a letter  
 
 Check the **Skipped Lines** section below.
 
@@ -71,12 +71,7 @@ ignore_countries = [
 
 # Common lowercase surname prefixes
 surname_prefixes = ["de", "van", "von", "da", "del", "di", "du", "la", "le", "Mac", "Mc", "van der", "van den", "der"]
-
-# Build a regex pattern for names
 prefix_pattern = r"(?:van der|van den|de|van|von|da|del|di|du|la|le|Mac|Mc|der)?"
-name_pattern = re.compile(
-    rf"[A-Z][a-zA-Z'`.-]+(?:\s{prefix_pattern}\s?[A-Z][a-zA-Z'`.-]+)+"
-)
 
 if input_text:
     lines = input_text.splitlines()
@@ -106,10 +101,27 @@ if input_text:
 
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # Match name
-        name_match = name_pattern.search(line_no_number)
-        if name_match:
-            name = name_match.group().strip()
+        # Capitalize first word for parsing (won't change original text)
+        line_parsed = line_no_number
+        if line_parsed and line_parsed[0].islower():
+            line_parsed = line_parsed[0].upper() + line_parsed[1:]
+
+        # Regex to match multi-word names with optional lowercase prefixes
+        multi_name_regex = re.compile(
+            rf"[A-Z][a-zA-Z'`.-]+(?:\s{prefix_pattern}\s?[A-Z][a-zA-Z'`.-]+)+"
+        )
+        # Regex to match single names ≥4 letters
+        single_name_regex = re.compile(r"\b[A-Z][a-zA-Z'`.-]{3,}\b")
+
+        match = multi_name_regex.search(line_parsed)
+        if match:
+            name = match.group().strip()
+        else:
+            # Try single-name fallback
+            match_single = single_name_regex.search(line_parsed)
+            name = match_single.group().strip() if match_single else None
+
+        if name:
             if team_text:
                 name += f" {team_text}"
             extracted_players.append((number, name))
