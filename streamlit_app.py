@@ -13,13 +13,13 @@ show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
-# Download format dropdown
-file_format = st.sidebar.selectbox("Download format", ["TSV (PhotoMechanic)", "CSV (general)"])
+# Download format dropdown (CSV FIRST)
+file_format = st.sidebar.selectbox("Download format", ["CSV (general)", "TSV (PhotoMechanic)"])
 
 # Checkbox: skip left column of numbers
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
 
-# --- FAQ Box ---
+# --- FAQ Box (always visible) ---
 st.sidebar.markdown(
     """
 ### 📘 FAQ
@@ -31,10 +31,12 @@ Copy the text from your source and paste it into the main text box.
 Use this if your team sheet has row numbers in the first column that you want to ignore.
 
 **Names not recognized:**  
-Some name formats might be skipped, including names not beginning with capital letters or unusual formatting. Check the **Skipped Lines** section below for any lines that weren’t detected.
+Some name formats may be skipped, including single-word names shorter than 4 letters or lines with unusual formatting.  
+Check the **Skipped Lines** section below for anything the tool couldn’t detect.
 
 **CSV vs TSV:**  
-CSV works in aText; TSV is preferred for **PhotoMechanic** imports as it preserves spacing and special characters.
+CSV works in aText.  
+TSV is preferred for **Photo Mechanic** imports because it preserves spacing and special characters.
 """
 )
 
@@ -67,7 +69,7 @@ ignore_countries = [
     "Russia", "Ukraine", "Egypt", "Morocco", "Nigeria"
 ]
 
-# Common lowercase name particles
+# Common lowercase particles in names
 name_particles = ["de", "van", "von", "da", "di", "le", "la", "del", "du", "Mac", "Mc"]
 
 if input_text:
@@ -77,14 +79,19 @@ if input_text:
         if not original_line:
             continue
 
+        # Ignore if line starts with category words
         if any(original_line.lower().startswith(h.lower()) for h in ignore_words):
             continue
 
+        # Clean symbols
         line = re.sub(r"^[\*\s]+", "", original_line)
         line = re.sub(r"\(.*?\)", "", line)
+
+        # Remove unwanted words and countries
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
+        # Extract numbers
         numbers_in_line = re.findall(r"\d+", line)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
@@ -93,14 +100,23 @@ if input_text:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
             line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
+        # Remove position codes
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
+        # Detect multi-word names
         particles_regex = "|".join(name_particles)
         name_match = re.findall(
             rf"[A-Z][a-zA-Z'`.-]+(?:\s(?:{particles_regex})?\s?[A-Z][a-zA-Z'`.-]+)+",
             line_no_number
         )
 
+        # If not found, detect single names (4+ letters, first letter capital)
+        if not name_match:
+            single_name_match = re.findall(r"\b[A-Z][a-zA-Z'`.-]{3,}\b", line_no_number)
+            if single_name_match:
+                name_match = [single_name_match[0]]
+
+        # If still nothing, skip
         if name_match:
             name = name_match[0].strip()
             if team_text:
@@ -114,27 +130,30 @@ if extracted_players:
     st.subheader("Extracted Team Sheet")
     st.text("\n".join([f"{num}\t{name}" if num else name for num, name in extracted_players]))
 
+    # Filename
     if file_name_input.strip():
         base_filename = file_name_input.strip()
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_filename = f"team_{timestamp}"
 
+    # Output file type
     output = io.StringIO()
-    if file_format == "TSV (PhotoMechanic)":
-        filename = base_filename + ".tsv"
-        delimiter = "\t"
-        mime = "text/tab-separated-values"
-    else:
+    if file_format == "CSV (general)":
         filename = base_filename + ".csv"
         delimiter = ","
         mime = "text/csv"
+    else:
+        filename = base_filename + ".tsv"
+        delimiter = "\t"
+        mime = "text/tab-separated-values"
 
     writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_MINIMAL)
     for num, name in extracted_players:
         writer.writerow([num, name])
 
     file_data = output.getvalue()
+
     st.download_button(
         label=f"Download as {file_format}",
         data=file_data,
