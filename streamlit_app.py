@@ -9,7 +9,7 @@ st.title("Team Sheet Extractor")
 
 # --- Sidebar ---
 st.sidebar.header("Options")
-show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
+include_numbers = st.sidebar.checkbox("Include Numbers", value=True)  # Default ON
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
@@ -101,23 +101,22 @@ if input_text:
 
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # Capitalize first word for parsing (won't change original text)
+        # Capitalize first word for parsing
         line_parsed = line_no_number
         if line_parsed and line_parsed[0].islower():
             line_parsed = line_parsed[0].upper() + line_parsed[1:]
 
-        # Regex to match multi-word names with optional lowercase prefixes
+        # Multi-word regex
         multi_name_regex = re.compile(
             rf"[A-Z][a-zA-Z'`.-]+(?:\s{prefix_pattern}\s?[A-Z][a-zA-Z'`.-]+)+"
         )
-        # Regex to match single names ≥4 letters
+        # Single-word ≥4 letters
         single_name_regex = re.compile(r"\b[A-Z][a-zA-Z'`.-]{3,}\b")
 
         match = multi_name_regex.search(line_parsed)
         if match:
             name = match.group().strip()
         else:
-            # Try single-name fallback
             match_single = single_name_regex.search(line_parsed)
             name = match_single.group().strip() if match_single else None
 
@@ -131,7 +130,7 @@ if input_text:
 # --- Output ---
 if extracted_players:
     st.subheader("Extracted Team Sheet")
-    st.text("\n".join([f"{num}\t{name}" if num else name for num, name in extracted_players]))
+    st.text("\n".join([f"{num}\t{name}" if include_numbers and num else name for num, name in extracted_players]))
 
     if file_name_input.strip():
         base_filename = file_name_input.strip()
@@ -150,7 +149,10 @@ if extracted_players:
 
     writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_MINIMAL)
     for num, name in extracted_players:
-        writer.writerow([num, name])
+        if include_numbers:
+            writer.writerow([num, name])
+        else:
+            writer.writerow(["", name])
 
     st.download_button(
         label=f"Download as {file_format}",
