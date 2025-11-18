@@ -49,8 +49,8 @@ ignore_countries = [
     "Russia", "Ukraine", "Egypt", "Morocco", "Nigeria"
 ]
 
-# Common lowercase name particles
-name_particles = ["de", "van", "von", "da", "di", "le", "la", "del", "du", "Mac", "Mc"]
+# Common name particles to allow in names
+name_particles = ["de", "van", "von", "di", "del", "la", "le"]
 
 if input_text:
     lines = input_text.splitlines()
@@ -59,15 +59,18 @@ if input_text:
         if not original_line:
             continue
 
+        line = original_line
+
         # Skip ignored headings
-        if any(original_line.lower().startswith(h.lower()) for h in ignore_words):
+        if any(line.lower().startswith(h.lower()) for h in ignore_words):
             continue
 
         # --- CLEAN LINE ---
-        line = re.sub(r"^[\*\s]+", "", original_line)
+        # Remove leading '*' or whitespace
+        line = re.sub(r"^[\*\s]+", "", line)
         # Remove content inside parentheses
         line = re.sub(r"\(.*?\)", "", line)
-        # Remove known positions / countries after name
+        # Remove any known positions / countries after the name
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
@@ -75,24 +78,29 @@ if input_text:
         numbers_in_line = re.findall(r"\d+", line)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
-            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
         else:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
+
+        # Remove the number(s) for name extraction
+        if skip_left_column:
+            # Remove first two numbers if they exist
+            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
+        else:
+            # Remove only the first number
             line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
         # Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # --- NAME EXTRACTION ---
-        # Regex to allow name particles
-        particles_regex = "|".join(name_particles)
+        # Extract name: allow single word if it's valid, or 2+ capitalized words
         name_match = re.findall(
-            rf"[A-Z][a-zA-Z'`.-]+(?:\s(?:{particles_regex})?\s?[A-Z][a-zA-Z'`.-]+)+",
+            rf"(?:[A-Z][a-zA-Z'`.-]+(?:\s(?:{'|'.join(name_particles)})\s)?[A-Z][a-zA-Z'`.-]+)+", 
             line_no_number
         )
 
         if name_match:
             name = name_match[0].strip()
+
             # Append team text
             if team_text:
                 name += f" {team_text}"
@@ -145,9 +153,11 @@ if extracted_players:
         file_name=filename,
         mime=mime
     )
-
-    if skipped_lines:
-        st.subheader("Skipped Lines (names not recognized)")
-        st.text("\n".join(skipped_lines))
 else:
     st.info("No player names detected. Make sure your team sheet is pasted correctly.")
+
+# --- Skipped Lines Log ---
+if skipped_lines:
+    st.subheader("Skipped Lines (names not recognized)")
+    skipped_html = "<br>".join([f"<span style='color:red'>{line}</span>" for line in skipped_lines])
+    st.markdown(skipped_html, unsafe_allow_html=True)
