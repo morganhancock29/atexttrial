@@ -13,11 +13,11 @@ show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
-# NEW: Skip left column numbers checkbox
-skip_left_column = st.sidebar.checkbox("Skip left column numbers", value=False)
-
 # File format dropdown
 file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV"])
+
+# New checkbox: skip left column of numbers
+skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
@@ -68,28 +68,23 @@ if input_text:
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
-        # --- GET NUMBER & NAME ---
-        # Extract all numbers ignoring times like 27:09
-        num_match = re.findall(r"\b\d+\b", line)
-        number = ""
-        line_no_number = line
-
+        # --- GET NUMBER ---
+        # If skipping left column, use second number; else use first
+        numbers_in_line = re.findall(r"\d+", line)
         if skip_left_column:
-            # TICKED: skip left column, use first number as jersey
-            if num_match:
-                number = num_match[0]
-                line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+            number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
         else:
-            # UNTICKED: include left column, use second number if available
-            if len(num_match) >= 2:
-                number = num_match[1]
-                # Remove left column number and jersey number
-                line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
-            elif num_match:
-                number = num_match[0]
-                line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+            number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
 
-        # Remove GK / DF / MF / FW if present
+        # Remove the number(s) for name extraction
+        if skip_left_column:
+            # Remove first two numbers if they exist
+            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
+        else:
+            # Remove only the first number
+            line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+
+        # NEW FIX: Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
         # Extract name: look for 2+ capitalized words
