@@ -9,12 +9,15 @@ st.title("Team Sheet Extractor")
 
 # --- Sidebar ---
 st.sidebar.header("Options")
-use_second_number = st.sidebar.checkbox("Use second number as jersey", value=True)
+show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
 # File format dropdown
 file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV"])
+
+# Checkbox to skip left column of numbers
+skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
@@ -65,19 +68,20 @@ if input_text:
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
-        # --- GET NUMBERS ---
-        numbers = re.findall(r"\b\d+\b", line)
-        number = ""
-        if numbers:
-            if use_second_number and len(numbers) > 1:
-                number = numbers[1]  # Take the second number if ticked
-            else:
-                number = numbers[0]  # Take first number if unticked
+        # --- GET NUMBER ---
+        numbers_in_line = re.findall(r"\d+", line)
+        if skip_left_column:
+            number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
+        else:
+            number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
 
         # Remove numbers from line for name extraction
-        line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+        if skip_left_column:
+            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
+        else:
+            line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
-        # NEW FIX: Remove GK / DF / MF / FW between number and name
+        # Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
         # --- NAME EXTRACTION ---
@@ -95,11 +99,12 @@ if input_text:
 
         if name_match:
             name = name_match[0].strip()
+
             # Append team text
             if team_text:
                 name += f" {team_text}"
 
-            if number:
+            if show_numbers and number:
                 extracted_players.append(f"{number}\t{name}")
             else:
                 extracted_players.append(name)
@@ -130,7 +135,7 @@ if extracted_players:
     output = io.StringIO()
     writer = csv.writer(output, delimiter=delimiter)
     for player in extracted_players:
-        if '\t' in player:
+        if show_numbers and '\t' in player:
             number, name = map(str.strip, player.split('\t', 1))
         else:
             number = ''
