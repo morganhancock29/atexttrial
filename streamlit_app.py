@@ -19,15 +19,24 @@ file_format = st.sidebar.selectbox("Download format", ["TSV (PhotoMechanic)", "C
 # Checkbox: skip left column of numbers
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
 
-# Optional FAQ
-if st.sidebar.checkbox("Show FAQ"):
-    st.sidebar.markdown("""
-    **FAQ**  
-    - **How to paste team sheets:** Copy the text from your source and paste it in the main text box.  
-    - **Skip left column:** Use this if your team sheet has row numbers in the first column you want to ignore.  
-    - **Names not recognized:** Some unusual name formats might be skipped; check the 'Skipped Lines' section below.  
-    - **CSV vs TSV:** CSV works in most programs; TSV is preferred for PhotoMechanic import.  
-    """)
+# --- FAQ Box ---
+st.sidebar.markdown(
+    """
+### 📘 FAQ
+
+**How to paste team sheets:**  
+Copy the text from your source and paste it into the main text box.
+
+**Skip left column:**  
+Use this if your team sheet has row numbers in the first column that you want to ignore.
+
+**Names not recognized:**  
+Some name formats might be skipped, including names not beginning with capital letters or unusual formatting. Check the **Skipped Lines** section below for any lines that weren’t detected.
+
+**CSV vs TSV:**  
+CSV works in aText; TSV is preferred for **PhotoMechanic** imports as it preserves spacing and special characters.
+"""
+)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
