@@ -67,4 +67,65 @@ if input_text:
             # If skipping left column, take the first number as jersey
             if num_match:
                 number = num_match[0]
-                line_no_
+                line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+        else:
+            # Old logic: take the second number if exists
+            if len(num_match) >= 2:
+                number = num_match[1]
+                # Remove the first two numbers from line
+                line_no_number = re.sub(r"^\d+\s*\d*\s*", "", line).strip()
+            elif num_match:
+                number = num_match[0]
+                line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+
+        # Remove positions like GK / DF / MF / FW at start
+        line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
+
+        # Extract name: look for 2+ capitalized words
+        name_match = re.findall(r"[A-Z][a-zA-Z'`.-]+(?:\s[A-Z][a-zA-Z'`.-]+)+", line_no_number)
+        if name_match:
+            name = name_match[0].strip()
+            if team_text:
+                name += f" {team_text}"
+
+            if show_numbers and number:
+                extracted_players.append(f"{number}\t{name}")
+            else:
+                extracted_players.append(name)
+
+# --- Output ---
+if extracted_players:
+    st.subheader("Extracted Team Sheet")
+    st.text("\n".join([p.replace("\t", " | ") for p in extracted_players]))
+
+    # Determine filename
+    base_filename = file_name_input.strip() if file_name_input.strip() else datetime.now().strftime("team_%Y%m%d_%H%M%S")
+    if file_format == "CSV":
+        filename = base_filename + ".csv"
+        delimiter = ","
+        mime = "text/csv"
+    else:
+        filename = base_filename + ".tsv"
+        delimiter = "\t"
+        mime = "text/tab-separated-values"
+
+    # Build data
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=delimiter)
+    for player in extracted_players:
+        if show_numbers and "\t" in player:
+            number, name = map(str.strip, player.split("\t", 1))
+        else:
+            number = ''
+            name = player
+        writer.writerow([number, name])
+
+    file_data = output.getvalue()
+    st.download_button(
+        label=f"Download as {file_format}",
+        data=file_data,
+        file_name=filename,
+        mime=mime
+    )
+else:
+    st.info("No player names detected. Make sure your team sheet is pasted correctly.")
