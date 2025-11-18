@@ -49,8 +49,8 @@ ignore_countries = [
     "Russia", "Ukraine", "Egypt", "Morocco", "Nigeria"
 ]
 
-# Common name particles to allow in names
-name_particles = ["de", "van", "von", "di", "del", "la", "le"]
+# Particles to keep with last name
+particles = ["de", "van", "von", "del", "di", "le", "du", "la", "dos", "das"]
 
 if input_text:
     lines = input_text.splitlines()
@@ -59,52 +59,38 @@ if input_text:
         if not original_line:
             continue
 
-        line = original_line
-
         # Skip ignored headings
-        if any(line.lower().startswith(h.lower()) for h in ignore_words):
+        if any(original_line.lower().startswith(h.lower()) for h in ignore_words):
             continue
 
         # --- CLEAN LINE ---
-        # Remove leading '*' or whitespace
-        line = re.sub(r"^[\*\s]+", "", line)
-        # Remove content inside parentheses
-        line = re.sub(r"\(.*?\)", "", line)
-        # Remove any known positions / countries after the name
+        line_clean = re.sub(r"^[\*\s]+", "", original_line)        # Remove leading '*' or whitespace
+        line_clean = re.sub(r"\(.*?\)", "", line_clean)           # Remove content inside parentheses
         for word in ignore_words + ignore_countries:
-            line = re.sub(rf"\b{re.escape(word)}\b", "", line)
+            line_clean = re.sub(rf"\b{re.escape(word)}\b", "", line_clean)
 
         # --- GET NUMBER ---
-        numbers_in_line = re.findall(r"\d+", line)
+        numbers_in_line = re.findall(r"\d+", line_clean)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
+            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line_clean).strip()
         else:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
-
-        # Remove the number(s) for name extraction
-        if skip_left_column:
-            # Remove first two numbers if they exist
-            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
-        else:
-            # Remove only the first number
-            line_no_number = re.sub(r"^\d+\s*", "", line).strip()
+            line_no_number = re.sub(r"^\d+\s*", "", line_clean).strip()
 
         # Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # Extract name: allow single word if it's valid, or 2+ capitalized words
+        # Extract name: allow first+last, include particles
         name_match = re.findall(
-            rf"(?:[A-Z][a-zA-Z'`.-]+(?:\s(?:{'|'.join(name_particles)})\s)?[A-Z][a-zA-Z'`.-]+)+", 
+            rf"[A-Z][a-zA-Z'`.-]+(?:\s(?:{'|'.join(particles)}\s)?[A-Z][a-zA-Z'`.-]+)+",
             line_no_number
         )
 
         if name_match:
             name = name_match[0].strip()
-
-            # Append team text
             if team_text:
                 name += f" {team_text}"
-
             if show_numbers and number:
                 extracted_players.append(f"{number}\t{name}")
             else:
@@ -112,52 +98,49 @@ if input_text:
         else:
             skipped_lines.append(original_line)
 
-# --- Output ---
-if extracted_players:
-    st.subheader("Extracted Team Sheet")
-    st.text("\n".join(extracted_players))
+    # --- Output ---
+    if extracted_players:
+        st.subheader("Extracted Team Sheet")
+        st.text("\n".join(extracted_players))
 
-    # Determine filename
-    if file_name_input.strip():
-        base_filename = file_name_input.strip()
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_filename = f"team_{timestamp}"
-
-    # Set extension based on dropdown
-    if file_format == "CSV":
-        filename = base_filename + ".csv"
-        delimiter = ","
-        mime = "text/csv"
-    else:
-        filename = base_filename + ".tsv"
-        delimiter = "\t"
-        mime = "text/tab-separated-values"
-
-    # Build data
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=delimiter)
-    for player in extracted_players:
-        if show_numbers and '\t' in player:
-            number, name = map(str.strip, player.split('\t', 1))
+        # File output
+        base_filename = file_name_input.strip() if file_name_input.strip() else datetime.now().strftime("team_%Y%m%d_%H%M%S")
+        if file_format == "CSV":
+            filename = f"{base_filename}.csv"
+            delimiter = ","
+            mime = "text/csv"
         else:
-            number = ''
-            name = player
-        writer.writerow([number, name])
+            filename = f"{base_filename}.tsv"
+            delimiter = "\t"
+            mime = "text/tab-separated-values"
 
-    file_data = output.getvalue()
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=delimiter)
+        for player in extracted_players:
+            if show_numbers and '\t' in player:
+                number, name = map(str.strip, player.split('\t', 1))
+            else:
+                number = ''
+                name = player
+            writer.writerow([number, name])
 
-    st.download_button(
-        label=f"Download as {file_format}",
-        data=file_data,
-        file_name=filename,
-        mime=mime
-    )
+        st.download_button(
+            label=f"Download as {file_format}",
+            data=output.getvalue(),
+            file_name=filename,
+            mime=mime
+        )
+
+    # --- Show input with skipped lines highlighted ---
+    if skipped_lines:
+        st.subheader("Input with Unrecognized Lines Highlighted")
+        highlighted_text = ""
+        for line in input_text.splitlines():
+            if line.strip() in skipped_lines:
+                highlighted_text += f"<span style='color:red'>{line}</span>\n"
+            else:
+                highlighted_text += f"{line}\n"
+        st.markdown(f"<pre style='white-space: pre-wrap'>{highlighted_text}</pre>", unsafe_allow_html=True)
+
 else:
     st.info("No player names detected. Make sure your team sheet is pasted correctly.")
-
-# --- Skipped Lines Log ---
-if skipped_lines:
-    st.subheader("Skipped Lines (names not recognized)")
-    skipped_html = "<br>".join([f"<span style='color:red'>{line}</span>" for line in skipped_lines])
-    st.markdown(skipped_html, unsafe_allow_html=True)
