@@ -18,7 +18,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
 
 # --- Input ---
-input_text = st.text_area("Paste team sheet here", height=350)
+input_text = st.text_area("Paste team sheet here", height=250)
 
 # --- Processing ---
 extracted_players = []
@@ -28,7 +28,6 @@ ignore_words = [
     "All-rounders", "Wicketkeepers", "Bowlers",
     "Forwards", "Defenders", "Goalkeepers", "Midfielders",
     "Forward", "Defender", "Goalkeeper", "Midfielder",
-    "GK", "DF", "MF", "FW",
     # Basketball positions
     "Point Guard", "PG", "Shooting Guard", "SG", "Small Forward", "SF",
     "Power Forward", "PF", "Center", "C"
@@ -51,10 +50,14 @@ if input_text:
         if not line:
             continue
 
-        # Remove starting '*' or whitespace
+        # --- CLEAN LINE ---
+        # Remove leading '*' or whitespace
         line = re.sub(r"^[\*\s]+", "", line)
-        # Remove contents inside parentheses
+        # Remove content inside parentheses
         line = re.sub(r"\(.*?\)", "", line)
+        # Remove any known positions / countries after the name
+        for word in ignore_words + ignore_countries:
+            line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
         # Split line into tokens
         tokens = line.split()
@@ -65,75 +68,74 @@ if input_text:
         jersey_number = ""
         name_tokens = []
 
-        # Loop through tokens to find the first number after the name
-        for i, token in enumerate(tokens):
-            # Skip positions/countries
-            if token in ignore_words + ignore_countries:
-                continue
-            # First token that is purely numeric is likely jersey number
-            if token.isdigit() and not jersey_number:
-                jersey_number = token
-                name_tokens = tokens[:i]  # Everything before number is name
-                break
+        # Collect all numeric tokens at the start
+        numeric_tokens = [token for token in tokens if token.isdigit()]
 
-        # If no numeric token found, treat entire line as name
-        if not jersey_number:
+        # If the first token is just a line index, pick the second numeric token
+        if len(numeric_tokens) >= 2:
+            jersey_number = numeric_tokens[1]
+            second_num_index = tokens.index(numeric_tokens[1])
+            name_tokens = tokens[second_num_index + 1:]
+        elif len(numeric_tokens) == 1:
+            jersey_number = numeric_tokens[0]
+            first_num_index = tokens.index(numeric_tokens[0])
+            name_tokens = tokens[first_num_index + 1:]
+        else:
+            # No numeric token found, treat entire line as name
             name_tokens = tokens
 
-        # Build player name
-        name = " ".join(name_tokens).strip()
+        # Extract name: only include capitalized words (handles hyphenated names too)
+        name_words = [w for w in name_tokens if re.match(r"^[A-Z][a-zA-Z'`.-]+", w)]
+        if not name_words:
+            continue
+        name = " ".join(name_words)
 
-        # Remove trailing positions/countries accidentally left
-        name = " ".join([w for w in name.split() if w not in ignore_words + ignore_countries])
-
-        # Append team text if given
+        # Append team text
         if team_text:
             name += f" {team_text}"
 
-        # Format output
         if show_numbers and jersey_number:
-            extracted_players.append(f"{jersey_number}\t{name}")
+            extracted_players.append(f"{jersey_number}\t{name}")  # Use tab internally
         else:
             extracted_players.append(name)
 
 # --- Output ---
 if extracted_players:
     st.subheader("Extracted Team Sheet")
-    st.text("\n".join(extracted_players))
+    st.text("\n".join([p.replace("\t", " | ") for p in extracted_players]))
 
     # Determine filename
     if file_name_input.strip():
-        filename = file_name_input.strip()
+        base_filename = file_name_input.strip()
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"team_{timestamp}"
+        base_filename = datetime.now().strftime("team_%Y%m%d_%H%M%S")
 
-    # Add proper extension
     if download_format == "CSV":
-        filename += ".csv"
+        filename = base_filename if base_filename.lower().endswith(".csv") else base_filename + ".csv"
         delimiter = ","
-        mime = "text/csv"
+        mime_type = "text/csv"
     else:
-        filename += ".tsv"
+        filename = base_filename if base_filename.lower().endswith(".tsv") else base_filename + ".tsv"
         delimiter = "\t"
-        mime = "text/tab-separated-values"
+        mime_type = "text/tab-separated-values"
 
-    # Prepare download
+    # Write output
     output = io.StringIO()
     writer = csv.writer(output, delimiter=delimiter)
     for player in extracted_players:
-        if show_numbers and '\t' in player:
-            number, name = map(str.strip, player.split('\t', 1))
+        if show_numbers and "\t" in player:
+            number, name = map(str.strip, player.split("\t", 1))
         else:
             number = ''
             name = player
         writer.writerow([number, name])
+    file_data = output.getvalue()
 
     st.download_button(
         label=f"Download as {download_format}",
-        data=output.getvalue(),
+        data=file_data,
         file_name=filename,
-        mime=mime
+        mime=mime_type
     )
 else:
     st.info("No player names detected. Make sure your team sheet is pasted correctly.")
