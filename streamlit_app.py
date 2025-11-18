@@ -1,16 +1,20 @@
 import streamlit as st
 import re
 import io
+import csv
 from datetime import datetime
 
-st.set_page_config(page_title="Team Sheet Extractor for aText", layout="wide")
-st.title("Team Sheet Extractor → aText Export")
+st.set_page_config(page_title="Team Sheet Extractor", layout="wide")
+st.title("Team Sheet Extractor")
 
 # --- Sidebar ---
 st.sidebar.header("Options")
 show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
+
+# Download format dropdown
+file_format = st.sidebar.selectbox("Download format", ["TSV (PhotoMechanic)", "CSV (general)", "aText"])
 
 # Checkbox: skip left column of numbers
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
@@ -25,6 +29,7 @@ input_text = st.text_area("Paste team sheet here", height=250)
 extracted_players = []
 skipped_lines = []
 
+# Words/positions to remove after name
 ignore_words = [
     "All-rounders", "Wicketkeepers", "Bowlers",
     "Forwards", "Defenders", "Goalkeepers", "Midfielders",
@@ -34,6 +39,7 @@ ignore_words = [
     "Power Forward", "PF", "Center", "C"
 ]
 
+# Countries to ignore
 ignore_countries = [
     "Australia", "AUS", "New Zealand", "NZ", "United States", "America", "USA", "Canada",
     "England", "South Africa", "India", "Pakistan", "Sri Lanka", "West Indies",
@@ -59,7 +65,9 @@ if input_text:
 
         # --- CLEAN LINE ---
         line = re.sub(r"^[\*\s]+", "", original_line)
+        # Remove content inside parentheses
         line = re.sub(r"\(.*?\)", "", line)
+        # Remove known positions / countries after name
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
@@ -72,6 +80,7 @@ if input_text:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
             line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
+        # Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
         # --- NAME EXTRACTION ---
@@ -85,36 +94,64 @@ if input_text:
             name = name_match[0].strip()
             if team_text:
                 name += f" {team_text}"
-            extracted_players.append((number, name))
+
+            if show_numbers and number:
+                extracted_players.append((number, name))
+            else:
+                extracted_players.append(("", name))
         else:
             skipped_lines.append(original_line)
 
 # --- Output ---
 if extracted_players:
-    st.subheader("Extracted Team Sheet for aText")
-    st.text("\n".join(f"{num}\t{name}" for num, name in extracted_players))
+    st.subheader("Extracted Team Sheet")
+    st.text("\n".join([f"{num}\t{name}" if num else name for num, name in extracted_players]))
 
     # Determine filename
     if file_name_input.strip():
         base_filename = file_name_input.strip()
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_filename = f"atext_export_{timestamp}"
+        base_filename = f"team_{timestamp}"
 
-    filename = base_filename + ".txt"  # Tab-delimited text for aText
-
-    # Build tab-delimited data
+    # --- Build file based on format ---
     output = io.StringIO()
-    for number, name in extracted_players:
-        output.write(f"{number}\t{name}\n")
+    writer = None
+
+    if file_format == "TSV (PhotoMechanic)":
+        filename = base_filename + ".tsv"
+        delimiter = "\t"
+        mime = "text/tab-separated-values"
+        writer = csv.writer(output, delimiter=delimiter)
+        for num, name in extracted_players:
+            writer.writerow([num, name])
+
+    elif file_format == "CSV (general)":
+        filename = base_filename + ".csv"
+        delimiter = ","
+        mime = "text/csv"
+        writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_ALL)
+        for num, name in extracted_players:
+            writer.writerow([num, name])
+
+    elif file_format == "aText":
+        filename = base_filename + ".csv"  # .csv extension works for aText import
+        delimiter = ","
+        mime = "text/csv"
+        writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_ALL)
+        # Header row for aText
+        writer.writerow(["abbreviation", "expansion"])
+        for num, name in extracted_players:
+            abbreviation = num if num else ""
+            writer.writerow([abbreviation, name])
 
     file_data = output.getvalue()
 
     st.download_button(
-        label="Download as aText-ready TXT",
+        label=f"Download as {file_format}",
         data=file_data,
         file_name=filename,
-        mime="text/plain"
+        mime=mime
     )
 
     if skipped_lines:
