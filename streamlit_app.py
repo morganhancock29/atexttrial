@@ -14,10 +14,20 @@ team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
 # Download format dropdown
-file_format = st.sidebar.selectbox("Download format", ["TSV (PhotoMechanic)", "CSV (general)", "aText"])
+file_format = st.sidebar.selectbox("Download format", ["TSV (PhotoMechanic)", "CSV (general)"])
 
 # Checkbox: skip left column of numbers
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
+
+# Optional FAQ
+if st.sidebar.checkbox("Show FAQ"):
+    st.sidebar.markdown("""
+    **FAQ**  
+    - **How to paste team sheets:** Copy the text from your source and paste it in the main text box.  
+    - **Skip left column:** Use this if your team sheet has row numbers in the first column you want to ignore.  
+    - **Names not recognized:** Some unusual name formats might be skipped; check the 'Skipped Lines' section below.  
+    - **CSV vs TSV:** CSV works in most programs; TSV is preferred for PhotoMechanic import.  
+    """)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Paste team sheet text below:")
@@ -34,7 +44,6 @@ ignore_words = [
     "All-rounders", "Wicketkeepers", "Bowlers",
     "Forwards", "Defenders", "Goalkeepers", "Midfielders",
     "Forward", "Defender", "Goalkeeper", "Midfielder",
-    # Basketball positions
     "Point Guard", "PG", "Shooting Guard", "SG", "Small Forward", "SF",
     "Power Forward", "PF", "Center", "C"
 ]
@@ -59,19 +68,14 @@ if input_text:
         if not original_line:
             continue
 
-        # Skip ignored headings
         if any(original_line.lower().startswith(h.lower()) for h in ignore_words):
             continue
 
-        # --- CLEAN LINE ---
         line = re.sub(r"^[\*\s]+", "", original_line)
-        # Remove content inside parentheses
         line = re.sub(r"\(.*?\)", "", line)
-        # Remove known positions / countries after name
         for word in ignore_words + ignore_countries:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
-        # --- GET NUMBER ---
         numbers_in_line = re.findall(r"\d+", line)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
@@ -80,10 +84,8 @@ if input_text:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
             line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
-        # Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # --- NAME EXTRACTION ---
         particles_regex = "|".join(name_particles)
         name_match = re.findall(
             rf"[A-Z][a-zA-Z'`.-]+(?:\s(?:{particles_regex})?\s?[A-Z][a-zA-Z'`.-]+)+",
@@ -94,11 +96,7 @@ if input_text:
             name = name_match[0].strip()
             if team_text:
                 name += f" {team_text}"
-
-            if show_numbers and number:
-                extracted_players.append((number, name))
-            else:
-                extracted_players.append(("", name))
+            extracted_players.append((number, name))
         else:
             skipped_lines.append(original_line)
 
@@ -107,46 +105,27 @@ if extracted_players:
     st.subheader("Extracted Team Sheet")
     st.text("\n".join([f"{num}\t{name}" if num else name for num, name in extracted_players]))
 
-    # Determine filename
     if file_name_input.strip():
         base_filename = file_name_input.strip()
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_filename = f"team_{timestamp}"
 
-    # --- Build file based on format ---
     output = io.StringIO()
-    writer = None
-
     if file_format == "TSV (PhotoMechanic)":
         filename = base_filename + ".tsv"
         delimiter = "\t"
         mime = "text/tab-separated-values"
-        writer = csv.writer(output, delimiter=delimiter)
-        for num, name in extracted_players:
-            writer.writerow([num, name])
-
-    elif file_format == "CSV (general)":
+    else:
         filename = base_filename + ".csv"
         delimiter = ","
         mime = "text/csv"
-        writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_ALL)
-        for num, name in extracted_players:
-            writer.writerow([num, name])
 
-    elif file_format == "aText":
-        filename = base_filename + ".csv"  # .csv extension works for aText import
-        delimiter = ","
-        mime = "text/csv"
-        writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_ALL)
-        # Header row for aText
-        writer.writerow(["abbreviation", "expansion"])
-        for num, name in extracted_players:
-            abbreviation = num if num else ""
-            writer.writerow([abbreviation, name])
+    writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    for num, name in extracted_players:
+        writer.writerow([num, name])
 
     file_data = output.getvalue()
-
     st.download_button(
         label=f"Download as {file_format}",
         data=file_data,
