@@ -126,7 +126,7 @@ if extracted_players:
         delimiter = "\t"
         mime = "text/tab-separated-values"
     else:  # aText format
-        filename = base_filename + "_aText.tsv"
+        filename = base_filename + ".atext"  # <- changed extension
         delimiter = "\t"
         mime = "text/tab-separated-values"
 
