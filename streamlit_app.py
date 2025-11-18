@@ -13,8 +13,8 @@ show_numbers = st.sidebar.checkbox("Include Numbers", value=True)
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
-# File format dropdown
-file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV"])
+# File format dropdown (add aText option)
+file_format = st.sidebar.selectbox("Download format", ["CSV", "TSV", "aText"])
 
 # Checkbox: skip left column of numbers
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
@@ -116,26 +116,42 @@ if extracted_players:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_filename = f"team_{timestamp}"
 
-    # Set extension based on dropdown
+    # Set extension and delimiter based on dropdown
     if file_format == "CSV":
         filename = base_filename + ".csv"
         delimiter = ","
         mime = "text/csv"
-    else:
+    elif file_format == "TSV":
         filename = base_filename + ".tsv"
+        delimiter = "\t"
+        mime = "text/tab-separated-values"
+    else:  # aText format
+        filename = base_filename + "_aText.tsv"
         delimiter = "\t"
         mime = "text/tab-separated-values"
 
     # Build data
     output = io.StringIO()
     writer = csv.writer(output, delimiter=delimiter)
-    for player in extracted_players:
-        if show_numbers and '\t' in player:
-            number, name = map(str.strip, player.split('\t', 1))
-        else:
-            number = ''
-            name = player
-        writer.writerow([number, name])
+
+    if file_format == "aText":
+        # Add headers for aText import
+        writer.writerow(["abbreviation", "text"])
+        for player in extracted_players:
+            if show_numbers and '\t' in player:
+                number, name = map(str.strip, player.split('\t', 1))
+            else:
+                number = ''
+                name = player
+            writer.writerow([number, name])
+    else:
+        for player in extracted_players:
+            if show_numbers and '\t' in player:
+                number, name = map(str.strip, player.split('\t', 1))
+            else:
+                number = ''
+                name = player
+            writer.writerow([number, name])
 
     file_data = output.getvalue()
 
