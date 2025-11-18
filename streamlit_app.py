@@ -49,8 +49,8 @@ ignore_countries = [
     "Russia", "Ukraine", "Egypt", "Morocco", "Nigeria"
 ]
 
-# Particles to keep with last name
-particles = ["de", "van", "von", "del", "di", "le", "du", "la", "dos", "das"]
+# Common lowercase name particles
+name_particles = ["de", "van", "von", "da", "di", "le", "la", "del", "du", "Mac", "Mc"]
 
 if input_text:
     lines = input_text.splitlines()
@@ -64,33 +64,39 @@ if input_text:
             continue
 
         # --- CLEAN LINE ---
-        line_clean = re.sub(r"^[\*\s]+", "", original_line)        # Remove leading '*' or whitespace
-        line_clean = re.sub(r"\(.*?\)", "", line_clean)           # Remove content inside parentheses
+        line = re.sub(r"^[\*\s]+", "", original_line)
+        # Remove content inside parentheses
+        line = re.sub(r"\(.*?\)", "", line)
+        # Remove known positions / countries after name
         for word in ignore_words + ignore_countries:
-            line_clean = re.sub(rf"\b{re.escape(word)}\b", "", line_clean)
+            line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
         # --- GET NUMBER ---
-        numbers_in_line = re.findall(r"\d+", line_clean)
+        numbers_in_line = re.findall(r"\d+", line)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
-            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line_clean).strip()
+            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
         else:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
-            line_no_number = re.sub(r"^\d+\s*", "", line_clean).strip()
+            line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
         # Remove GK / DF / MF / FW between number and name
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # Extract name: allow first+last, include particles
+        # --- NAME EXTRACTION ---
+        # Regex to allow name particles
+        particles_regex = "|".join(name_particles)
         name_match = re.findall(
-            rf"[A-Z][a-zA-Z'`.-]+(?:\s(?:{'|'.join(particles)}\s)?[A-Z][a-zA-Z'`.-]+)+",
+            rf"[A-Z][a-zA-Z'`.-]+(?:\s(?:{particles_regex})?\s?[A-Z][a-zA-Z'`.-]+)+",
             line_no_number
         )
 
         if name_match:
             name = name_match[0].strip()
+            # Append team text
             if team_text:
                 name += f" {team_text}"
+
             if show_numbers and number:
                 extracted_players.append(f"{number}\t{name}")
             else:
@@ -98,49 +104,50 @@ if input_text:
         else:
             skipped_lines.append(original_line)
 
-    # --- Output ---
-    if extracted_players:
-        st.subheader("Extracted Team Sheet")
-        st.text("\n".join(extracted_players))
+# --- Output ---
+if extracted_players:
+    st.subheader("Extracted Team Sheet")
+    st.text("\n".join(extracted_players))
 
-        # File output
-        base_filename = file_name_input.strip() if file_name_input.strip() else datetime.now().strftime("team_%Y%m%d_%H%M%S")
-        if file_format == "CSV":
-            filename = f"{base_filename}.csv"
-            delimiter = ","
-            mime = "text/csv"
+    # Determine filename
+    if file_name_input.strip():
+        base_filename = file_name_input.strip()
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_filename = f"team_{timestamp}"
+
+    # Set extension based on dropdown
+    if file_format == "CSV":
+        filename = base_filename + ".csv"
+        delimiter = ","
+        mime = "text/csv"
+    else:
+        filename = base_filename + ".tsv"
+        delimiter = "\t"
+        mime = "text/tab-separated-values"
+
+    # Build data
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=delimiter)
+    for player in extracted_players:
+        if show_numbers and '\t' in player:
+            number, name = map(str.strip, player.split('\t', 1))
         else:
-            filename = f"{base_filename}.tsv"
-            delimiter = "\t"
-            mime = "text/tab-separated-values"
+            number = ''
+            name = player
+        writer.writerow([number, name])
 
-        output = io.StringIO()
-        writer = csv.writer(output, delimiter=delimiter)
-        for player in extracted_players:
-            if show_numbers and '\t' in player:
-                number, name = map(str.strip, player.split('\t', 1))
-            else:
-                number = ''
-                name = player
-            writer.writerow([number, name])
+    file_data = output.getvalue()
 
-        st.download_button(
-            label=f"Download as {file_format}",
-            data=output.getvalue(),
-            file_name=filename,
-            mime=mime
-        )
+    st.download_button(
+        label=f"Download as {file_format}",
+        data=file_data,
+        file_name=filename,
+        mime=mime
+    )
 
-    # --- Show input with skipped lines highlighted ---
     if skipped_lines:
-        st.subheader("Input with Unrecognized Lines Highlighted")
-        highlighted_text = ""
-        for line in input_text.splitlines():
-            if line.strip() in skipped_lines:
-                highlighted_text += f"<span style='color:red'>{line}</span>\n"
-            else:
-                highlighted_text += f"{line}\n"
-        st.markdown(f"<pre style='white-space: pre-wrap'>{highlighted_text}</pre>", unsafe_allow_html=True)
-
+        st.subheader("Skipped Lines (names not recognized)")
+        st.text("\n".join(skipped_lines))
 else:
     st.info("No player names detected. Make sure your team sheet is pasted correctly.")
