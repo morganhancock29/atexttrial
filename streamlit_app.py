@@ -69,25 +69,27 @@ if input_text:
             line = re.sub(rf"\b{re.escape(word)}\b", "", line)
 
         # --- GET NUMBER & NAME ---
-        num_match = re.findall(r"\d+", line)
+        # Extract all numbers ignoring times like 27:09
+        num_match = re.findall(r"\b\d+\b", line)
         number = ""
         line_no_number = line
 
         if skip_left_column:
-            # TICKED: skip left column, first number = jersey
+            # TICKED: skip left column, use first number as jersey
             if num_match:
                 number = num_match[0]
                 line_no_number = re.sub(r"^\d+\s*", "", line).strip()
         else:
-            # UNTICKED: normal behavior, take second number if exists
+            # UNTICKED: include left column, use second number if available
             if len(num_match) >= 2:
                 number = num_match[1]
-                line_no_number = re.sub(r"^\d+\s*\d*\s*", "", line).strip()
+                # Remove left column number and jersey number
+                line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line).strip()
             elif num_match:
                 number = num_match[0]
                 line_no_number = re.sub(r"^\d+\s*", "", line).strip()
 
-        # NEW FIX: Remove GK / DF / MF / FW between number and name
+        # Remove GK / DF / MF / FW if present
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
         # Extract name: look for 2+ capitalized words
