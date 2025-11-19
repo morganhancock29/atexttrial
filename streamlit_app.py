@@ -10,6 +10,7 @@ st.title("Team Sheet Extractor")
 # --- Sidebar ---
 st.sidebar.header("Options")
 include_numbers = st.sidebar.checkbox("Include Numbers", value=True)  # Default ON
+number_prefix = st.sidebar.text_input("Text to prepend before number", value="")  # New prefix box
 team_text = st.sidebar.text_input("Text to append after player name", value="")
 file_name_input = st.sidebar.text_input("Filename (optional)", value="")
 
@@ -40,6 +41,9 @@ Check the **Skipped Lines** section below.
 If your sheet includes row numbers like:  
 `1 26 Taylor Smith`  
 turn ON this option to ignore the first number.
+
+**Number Prefix**  
+If you want to prepend a string before the number (e.g., `a1`, `b2`), type it in the box above.
 """)
 
 st.sidebar.markdown("---")
@@ -98,6 +102,10 @@ if input_text:
         else:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
             line_no_number = re.sub(r"^\d+\s*", "", line_clean).strip()
+
+        # Prepend number prefix if any
+        if number and number_prefix:
+            number = f"{number_prefix}{number}"
 
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
