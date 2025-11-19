@@ -7,34 +7,71 @@ from datetime import datetime
 st.set_page_config(page_title="Team Sheet Extractor", layout="wide")
 st.title("Team Sheet Extractor")
 
-# --- Sidebar Options ---
+# --- Sidebar ---
 st.sidebar.header("Options")
-include_numbers = st.sidebar.checkbox("Include Numbers", value=True)
+include_numbers = st.sidebar.checkbox("Include Numbers", value=True)  # Default ON
+team_text = st.sidebar.text_input("Text to append after player name", value="")
+file_name_input = st.sidebar.text_input("Filename (optional)", value="")
+
+# Download format dropdown
 file_format = st.sidebar.selectbox("Download format", ["CSV (aText)", "TSV (PhotoMechanic)"])
-file_name_input = st.sidebar.text_input("Filename (optional)", value="team_sheet")
+
+# Checkbox to skip left column
 skip_left_column = st.sidebar.checkbox("Skip left column of numbers", value=False)
 
-# --- FAQ ---
-st.sidebar.markdown("### FAQ")
+# FAQ box
+st.sidebar.markdown("---")
 st.sidebar.markdown("""
-- **How to paste team sheets:** Copy text from your source and paste it in the main text box.  
-- **Include numbers:** By default, player numbers are included in the output. Uncheck to remove them.  
-- **Skip left column:** Use this if your team sheet has row numbers in the first column you want to ignore.  
-- **Names not recognized:** Some unusual name formats might be skipped; check the 'Skipped Lines' section below.  
-- **CSV vs TSV:** CSV works in aText; TSV is preferred for PhotoMechanic import.
+### ❓ FAQ
+
+**Why do some names not work?**  
+Some unusual name formats might be skipped, including:  
+- Very short names (<4 letters)  
+- Single-word names shorter than 4 letters  
+- Lines not starting with a letter  
+
+Check the **Skipped Lines** section below.
+
+**CSV vs TSV**  
+- **CSV (aText)** is recommended for aText  
+- **TSV (PhotoMechanic)** preserves spacing and special characters for PhotoMechanic
+
+**Skip left column**  
+If your sheet includes row numbers like:  
+`1 26 Taylor Smith`  
+turn ON this option to ignore the first number.
 """)
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("Paste team sheet text below:")
+
 # --- Input ---
-st.markdown("---")
-st.markdown("### Paste team sheet text below:")
-input_text = st.text_area("", height=300)
+input_text = st.text_area("Paste team sheet here", height=250)
 
 # --- Processing ---
 extracted_players = []
 skipped_lines = []
+potential_issues = []
 
-# Name particles to allow lowercase middle parts
-name_particles = ["de", "van", "von", "da", "di", "le", "la", "del", "du", "Mac", "Mc", "O'"]
+ignore_words = [
+    "All-rounders", "Wicketkeepers", "Bowlers",
+    "Forwards", "Defenders", "Goalkeepers", "Midfielders",
+    "Forward", "Defender", "Goalkeeper", "Midfielder",
+    "Point Guard", "PG", "Shooting Guard", "SG", "Small Forward", "SF",
+    "Power Forward", "PF", "Center", "C"
+]
+
+ignore_countries = [
+    "Australia", "AUS", "New Zealand", "NZ", "United States", "America", "USA", "Canada",
+    "England", "South Africa", "India", "Pakistan", "Sri Lanka", "West Indies",
+    "Bangladesh", "Afghanistan", "Ireland", "Scotland", "Netherlands", "Germany", "France",
+    "Italy", "Spain", "Portugal", "Belgium", "Greece", "Turkey", "China", "Japan", "Korea",
+    "Brazil", "Argentina", "Mexico", "Sweden", "Norway", "Denmark", "Finland", "Poland",
+    "Russia", "Ukraine", "Egypt", "Morocco", "Nigeria"
+]
+
+surname_prefixes = ["de", "van", "von", "da", "del", "di", "du", "la", "le", "Mac", "Mc", "van der", "van den", "der"]
+prefix_pattern = r"(?:van der|van den|de|van|von|da|del|di|du|la|le|Mac|Mc|der)?"
 
 if input_text:
     lines = input_text.splitlines()
@@ -43,55 +80,83 @@ if input_text:
         if not original_line:
             continue
 
-        # Remove left index/number if required
-        numbers_in_line = re.findall(r"\d+", original_line)
+        # Skip headings
+        if any(original_line.lower().startswith(h.lower()) for h in ignore_words):
+            continue
+
+        # Clean line
+        line_clean = re.sub(r"^[\*\s]+", "", original_line)
+        line_clean = re.sub(r"\(.*?\)", "", line_clean)
+        for word in ignore_words + ignore_countries:
+            line_clean = re.sub(rf"\b{re.escape(word)}\b", "", line_clean)
+
+        # Extract number
+        numbers_in_line = re.findall(r"\d+", line_clean)
         if skip_left_column:
             number = numbers_in_line[1] if len(numbers_in_line) > 1 else ""
-            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", original_line).strip()
+            line_no_number = re.sub(r"^\d+\s+\d+\s*", "", line_clean).strip()
         else:
             number = numbers_in_line[0] if len(numbers_in_line) > 0 else ""
-            line_no_number = re.sub(r"^\d+\s*", "", original_line).strip()
+            line_no_number = re.sub(r"^\d+\s*", "", line_clean).strip()
 
-        # Remove parentheticals (country tags, etc.)
-        line_no_number = re.sub(r"\(.*?\)", "", line_no_number)
+        line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # Regex for first + last names, allowing optional particles
-        particles_regex = "|".join(name_particles)
-        name_match = re.findall(
-            rf"\b[A-Z][a-zA-Z'`.-]+(?:\s(?:{particles_regex})\s)?[A-Z][a-zA-Z'`.-]+|\b[A-Z][a-zA-Z'`.-]{{3,}}\b",
-            line_no_number
+        # Capitalize first word for parsing
+        line_parsed = line_no_number
+        if line_parsed and line_parsed[0].islower():
+            line_parsed = line_parsed[0].upper() + line_parsed[1:]
+
+        # Multi-word regex
+        multi_name_regex = re.compile(
+            rf"[A-Z][a-zA-Z'`.-]+(?:\s{prefix_pattern}\s?[A-Z][a-zA-Z'`.-]+)+"
         )
+        # Single-word ≥4 letters
+        single_name_regex = re.compile(r"\b[A-Z][a-zA-Z'`.-]{3,}\b")
 
-        if name_match:
-            name = name_match[0].strip()
-            if include_numbers and number:
-                extracted_players.append((number, name))
-            else:
-                extracted_players.append(("", name))
+        match = multi_name_regex.search(line_parsed)
+        if match:
+            name = match.group().strip()
+        else:
+            match_single = single_name_regex.search(line_parsed)
+            name = match_single.group().strip() if match_single else None
+
+        # Flag potential issues
+        if not name or len(name.split()) == 1 and len(name) < 4:
+            potential_issues.append(original_line)
+
+        if name:
+            if team_text:
+                name += f" {team_text}"
+            extracted_players.append((number, name))
         else:
             skipped_lines.append(original_line)
 
 # --- Output ---
 if extracted_players:
     st.subheader("Extracted Team Sheet")
-    st.text("\n".join([f"{num}\t{name}" if num else name for num, name in extracted_players]))
+    st.text("\n".join([f"{num}\t{name}" if include_numbers and num else name for num, name in extracted_players]))
 
-    # Determine filename
-    base_filename = file_name_input.strip() or datetime.now().strftime("team_%Y%m%d_%H%M%S")
+    if file_name_input.strip():
+        base_filename = file_name_input.strip()
+    else:
+        base_filename = f"team_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     output = io.StringIO()
-    if file_format == "CSV (aText)":
-        delimiter = ","
-        mime = "text/csv"
-        filename = f"{base_filename}.csv"
-    else:
+    if file_format == "TSV (PhotoMechanic)":
+        filename = base_filename + ".tsv"
         delimiter = "\t"
         mime = "text/tab-separated-values"
-        filename = f"{base_filename}.tsv"
+    else:
+        filename = base_filename + ".csv"
+        delimiter = ","
+        mime = "text/csv"
 
     writer = csv.writer(output, delimiter=delimiter, quotechar='"', quoting=csv.QUOTE_MINIMAL)
     for num, name in extracted_players:
-        writer.writerow([num, name])
+        if include_numbers:
+            writer.writerow([num, name])
+        else:
+            writer.writerow(["", name])
 
     st.download_button(
         label=f"Download as {file_format}",
@@ -99,6 +164,11 @@ if extracted_players:
         file_name=filename,
         mime=mime
     )
+
+    # Highlight potential issues
+    if potential_issues:
+        st.subheader("⚠️ Potential Problems")
+        st.text("\n".join(potential_issues))
 
     if skipped_lines:
         st.subheader("Skipped Lines (names not recognized)")
