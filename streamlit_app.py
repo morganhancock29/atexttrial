@@ -55,7 +55,7 @@ input_text = st.text_area("Paste team sheet here", height=250)
 # --- Processing ---
 extracted_players = []
 skipped_lines = []
-potential_issues = []
+potential_issues = []  # will hold tuples (original_line, reason)
 
 ignore_words = [
     "All-rounders", "Wicketkeepers", "Bowlers",
@@ -90,6 +90,7 @@ if input_text:
 
         # Clean line
         line_clean = re.sub(r"^[\*\s]+", "", original_line)
+        # Remove parenthetical country tags (but keep text around them)
         line_clean = re.sub(r"\(.*?\)", "", line_clean)
         for word in ignore_words + ignore_countries:
             line_clean = re.sub(rf"\b{re.escape(word)}\b", "", line_clean)
@@ -109,7 +110,7 @@ if input_text:
 
         line_no_number = re.sub(r"^(GK|DF|MF|FW)\b", "", line_no_number).strip()
 
-        # Capitalize first word for parsing
+        # Capitalize first word for parsing (only for matching)
         line_parsed = line_no_number
         if line_parsed and line_parsed[0].islower():
             line_parsed = line_parsed[0].upper() + line_parsed[1:]
@@ -124,20 +125,54 @@ if input_text:
         match = multi_name_regex.search(line_parsed)
         if match:
             name = match.group().strip()
+            # If we captured only a single word (unexpected), set to single-word logic
+            name_words = name.split()
         else:
             match_single = single_name_regex.search(line_parsed)
             name = match_single.group().strip() if match_single else None
+            name_words = name.split() if name else []
 
-        # Flag potential issues
-        if not name or len(name.split()) == 1 and len(name) < 4:
-            potential_issues.append(original_line)
+        # If name was found but is single word while original has a lowercase last token,
+        # flag that we only captured first name because last name lacked capital.
+        if name and len(name_words) == 1:
+            # Look at original_line tokens after removing leading numbers
+            after_num = re.sub(r"^\s*\d+\s*", "", original_line).strip()
+            tokens = after_num.split()
+            if len(tokens) >= 2:
+                # if second token is all-lowercase (or starts lowercase) assume that's why it was missed
+                second = tokens[1]
+                if second and second[0].islower():
+                    reason = "Last name not capitalised — only first name captured"
+                    potential_issues.append((original_line, reason))
 
-        if name:
+        # If no name, create a helpful explanation
+        if not name:
+            reason = None
+            # Remove leading number for inspection
+            after_num = re.sub(r"^\s*\d+\s*", "", original_line).strip()
+            tokens = after_num.split()
+
+            # If first token starts lowercase -> first name not capitalised
+            if tokens and tokens[0] and tokens[0][0].islower():
+                reason = "First name not capitalised"
+            # Else if there's a second token and it's lowercase -> last name not capitalised
+            elif len(tokens) >= 2 and tokens[1] and tokens[1][0].islower():
+                reason = "Last name not capitalised"
+            # Else if single token and too short
+            elif len(tokens) == 1 and len(tokens[0]) < 4:
+                reason = "Single-word name too short"
+            # Else if digits appear after the first token (dates mid-line) they may interfere
+            elif re.search(r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b", original_line) or re.search(r"\b\d{2,4}\b", " ".join(tokens[1:])):
+                reason = "Numbers or dates mid-line may have interfered"
+            else:
+                reason = "Unusual format — name could not be parsed"
+
+            potential_issues.append((original_line, reason))
+            skipped_lines.append(original_line)
+        else:
             if team_text:
                 name += f" {team_text}"
             extracted_players.append((number, name))
-        else:
-            skipped_lines.append(original_line)
 
 # --- Output ---
 if extracted_players:
@@ -145,18 +180,11 @@ if extracted_players:
     st.text("\n".join([f"{num}\t{name}" if include_numbers and num else name for num, name in extracted_players]))
 
     # -------------------------
-    # NEW: POSSIBLE ERRORS SECTION
+    # POSSIBLE ERRORS SECTION
     # -------------------------
     if potential_issues:
         st.markdown("### ⚠️ Possible Errors Detected")
-        explanations = []
-        for line in potential_issues:
-            if len(line.split()) == 1:
-                explanations.append(f"{line}  — Single-word name or too short to recognise")
-            elif any(char.isdigit() for char in line):
-                explanations.append(f"{line}  — Contains numbers that may interfere with name detection")
-            else:
-                explanations.append(f"{line}  — Unusual format, name could not be parsed")
+        explanations = [f"{line}  — {reason}" for line, reason in potential_issues]
         st.text("\n".join(explanations))
     # -------------------------
 
@@ -192,6 +220,5 @@ if extracted_players:
     if skipped_lines:
         st.subheader("Skipped Lines (names not recognized)")
         st.text("\n".join(skipped_lines))
-
 else:
     st.info("No player names detected. Make sure your team sheet is pasted correctly.")
