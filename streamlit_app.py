@@ -144,6 +144,22 @@ if extracted_players:
     st.subheader("Extracted Team Sheet")
     st.text("\n".join([f"{num}\t{name}" if include_numbers and num else name for num, name in extracted_players]))
 
+    # -------------------------
+    # NEW: POSSIBLE ERRORS SECTION
+    # -------------------------
+    if potential_issues:
+        st.markdown("### ⚠️ Possible Errors Detected")
+        explanations = []
+        for line in potential_issues:
+            if len(line.split()) == 1:
+                explanations.append(f"{line}  — Single-word name or too short to recognise")
+            elif any(char.isdigit() for char in line):
+                explanations.append(f"{line}  — Contains numbers that may interfere with name detection")
+            else:
+                explanations.append(f"{line}  — Unusual format, name could not be parsed")
+        st.text("\n".join(explanations))
+    # -------------------------
+
     if file_name_input.strip():
         base_filename = file_name_input.strip()
     else:
@@ -173,13 +189,9 @@ if extracted_players:
         mime=mime
     )
 
-    # Highlight potential issues
-    if potential_issues:
-        st.subheader("⚠️ Potential Problems")
-        st.text("\n".join(potential_issues))
-
     if skipped_lines:
         st.subheader("Skipped Lines (names not recognized)")
         st.text("\n".join(skipped_lines))
+
 else:
     st.info("No player names detected. Make sure your team sheet is pasted correctly.")
